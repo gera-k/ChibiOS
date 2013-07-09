@@ -65,7 +65,7 @@ typedef volatile struct {
   PicReg   con;
   PicReg   status;
   volatile uint32_t buf;
-  uint32_t pad0[4];
+  uint32_t pad0[3];
   PicReg   brg;
 } SpiPort;
 
@@ -116,6 +116,7 @@ static void __spi_config(SPIDriver *spid) {
       break;
   }
   con |= 1 << SPI_CON_MASTER;
+  con |= 0x10001;
 
   port->con.reg = con;
 
@@ -236,7 +237,7 @@ static void __spi_start_transaction(SPIDriver *spid) {
       cnt = min(spid->cnt, SPI_DUMMY_DMA_BUFFER_SIZE);
 
     tx->src = dmaMap(spid->txptr?(uint8_t *)spid->txptr+1:dummyDmaTxBuffer);
-    tx->n = cnt-1;
+    tx->n = cnt; //-1;
     tx->status = DMA_TRANSACTION_FAILED;
 
     rx->dst = dmaMap(spid->rxptr?:dummyDmaRxBuffer);
