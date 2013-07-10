@@ -111,9 +111,12 @@
  */
 struct lwipthread_opts {
   uint8_t       *macaddress;
-  uint32_t      address;
-  uint32_t      netmask;
-  uint32_t      gateway;
+  ip_addr_t     address;
+  ip_addr_t     netmask;
+  ip_addr_t     gateway;
+  void*         link_cb;
+  void*         status_cb;
+  bool_t        dhcp;
 };
 
 extern WORKING_AREA(wa_lwip_thread, LWIP_THREAD_STACK_SIZE);

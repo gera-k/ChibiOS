@@ -59,8 +59,6 @@
 #include "hal.h"
 #include "evtimer.h"
 
-#include "lwipthread.h"
-
 #include "lwip/opt.h"
 
 #include "lwip/def.h"
@@ -70,8 +68,12 @@
 #include <lwip/stats.h>
 #include <lwip/snmp.h>
 #include <lwip/tcpip.h>
+#include "lwip/dhcp.h"
+#include "lwip/netifapi.h"
 #include "netif/etharp.h"
 #include "netif/ppp_oe.h"
+
+#include "lwipthread.h"
 
 #define PERIODIC_TIMER_ID       1
 #define FRAME_RECEIVED_ID       2
@@ -212,27 +214,30 @@ static err_t ethernetif_init(struct netif *netif) {
  * @return The function does not return.
  */
 msg_t lwip_thread(void *p) {
+  struct lwipthread_opts *opts = p;
   EvTimer evt;
   EventListener el0, el1;
   struct ip_addr ip, gateway, netmask;
   static struct netif thisif;
   static const MACConfig mac_config = {thisif.hwaddr};
+  bool_t dhcp = FALSE;
 
-  chRegSetThreadName("lwipthread");
+  chRegSetThreadName(DEFAULT_THREAD_NAME);
 
   /* Initializes the thing.*/
   tcpip_init(NULL, NULL);
 
   /* TCP/IP parameters, runtime or compile time.*/
-  if (p) {
-    struct lwipthread_opts *opts = p;
-    unsigned i;
-
-    for (i = 0; i < 6; i++)
-      thisif.hwaddr[i] = opts->macaddress[i];
-    ip.addr = opts->address;
-    gateway.addr = opts->gateway;
-    netmask.addr = opts->netmask;
+  if (opts) {
+    if (opts->macaddress) {
+      unsigned i;
+      for (i = 0; i < 6; i++)
+        thisif.hwaddr[i] = opts->macaddress[i];
+    }
+    ip.addr = opts->address.addr;
+    gateway.addr = opts->gateway.addr;
+    netmask.addr = opts->netmask.addr;
+    dhcp = opts->dhcp;
   }
   else {
     thisif.hwaddr[0] = LWIP_ETHADDR_0;
@@ -245,11 +250,26 @@ msg_t lwip_thread(void *p) {
     LWIP_GATEWAY(&gateway);
     LWIP_NETMASK(&netmask);
   }
+
   macStart(&ETHD1, &mac_config);
   netif_add(&thisif, &ip, &netmask, &gateway, NULL, ethernetif_init, tcpip_input);
 
+  if (opts) {
+#if LWIP_NETIF_LINK_CALLBACK
+    if (opts->link_cb)
+      netif_set_link_callback(&thisif, (netif_status_callback_fn)(opts->link_cb));
+#endif
+#if LWIP_NETIF_STATUS_CALLBACK
+    if (opts->status_cb)
+      netif_set_status_callback(&thisif, (netif_status_callback_fn)(opts->status_cb));
+#endif
+  }
+
   netif_set_default(&thisif);
-  netif_set_up(&thisif);
+#if LWIP_DHCP
+  if (!dhcp)
+#endif
+    netif_set_up(&thisif);
 
   /* Setup event sources.*/
   evtInit(&evt, LWIP_LINK_POLL_INTERVAL);
@@ -266,12 +286,21 @@ msg_t lwip_thread(void *p) {
     if (mask & PERIODIC_TIMER_ID) {
       bool_t current_link_status = macPollLinkStatus(&ETHD1);
       if (current_link_status != netif_is_link_up(&thisif)) {
-        if (current_link_status)
+        if (current_link_status) {
           tcpip_callback_with_block((tcpip_callback_fn) netif_set_link_up,
                                      &thisif, 0);
-        else
+#if LWIP_DHCP
+          if (dhcp)
+            netifapi_dhcp_start(&thisif);
+#endif
+        } else {
+#if LWIP_DHCP
+          if (dhcp)
+            netif_set_down(&thisif);
+#endif
           tcpip_callback_with_block((tcpip_callback_fn) netif_set_link_down,
                                      &thisif, 0);
+        }
       }
     }
     if (mask & FRAME_RECEIVED_ID) {
