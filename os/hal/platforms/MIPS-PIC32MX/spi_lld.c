@@ -116,7 +116,6 @@ static void __spi_config(SPIDriver *spid) {
       break;
   }
   con |= 1 << SPI_CON_MASTER;
-  con |= 0x10001;
 
   port->con.reg = con;
 
