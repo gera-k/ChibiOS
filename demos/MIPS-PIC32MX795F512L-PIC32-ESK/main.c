@@ -29,9 +29,12 @@
 #include "test.h"
 #include "usbcfg.h"
 #include "mcu/pic32mxxx.h"
+#include "../various/memstreams.h"
+
+#include "lwip/opt.h"
+#include "lwip/netifapi.h"
 #include "lwipthread.h"
 #include "web/web.h"
-#include "../various/memstreams.h"
 
 static SerialDriver SD1;
 static const SerialConfig sd1_config = {
@@ -256,10 +259,48 @@ static void cmd_test(BaseSequentialStream *chp, int argc, char *argv[]) {
   (void)argv;
 }
 
+static void netif_link_cb(struct netif *netif) {
+  if (netif_is_link_up(netif)) {
+    dbgprintf("%c%c%d link is up\n", netif->name[0], netif->name[1], netif->num );
+  } else {
+    dbgprintf( "%c%c%d link is down\n", netif->name[0], netif->name[1], netif->num );
+  }
+}
+
+static void netif_status_cb(struct netif *netif) {
+  if (netif_is_up(netif)) {
+    dbgprintf(
+        "%c%c%d if is up\n"
+        "  netaddr: %d.%d.%d.%d\n"
+        "  netmask: %d.%d.%d.%d\n"
+        "  gateway: %d.%d.%d.%d\n",
+        netif->name[0], netif->name[1], netif->num,
+        ip4_addr1(&netif->ip_addr), ip4_addr2(&netif->ip_addr),
+        ip4_addr3(&netif->ip_addr), ip4_addr4(&netif->ip_addr),
+        ip4_addr1(&netif->netmask), ip4_addr2(&netif->netmask),
+        ip4_addr3(&netif->netmask), ip4_addr4(&netif->netmask),
+        ip4_addr1(&netif->gw), ip4_addr2(&netif->gw),
+        ip4_addr3(&netif->gw), ip4_addr4(&netif->gw)
+    );
+  } else {
+    dbgprintf( "%c%c%d if is down\n", netif->name[0], netif->name[1], netif->num );
+  }
+}
+
+static void cmd_netstat(BaseSequentialStream *chp, int argc, char *argv[]) {
+  (void)chp;
+  (void)argc;
+  (void)argv;
+
+  netif_link_cb(netif_default);
+  netif_status_cb(netif_default);
+}
+
 static const ShellCommand shCmds[] = {
   {"mem",       cmd_mem},
   {"threads",   cmd_threads},
   {"test",      cmd_test},
+  {"netstat",   cmd_netstat},
   {NULL, NULL}
 };
 
@@ -339,6 +380,12 @@ void __attribute__((constructor)) ll_init(void) {
   usbConnectBus(serUsbCfg.usbp);
 }
 
+static struct lwipthread_opts lwip_opts = {
+  .link_cb = netif_link_cb,
+  .status_cb = netif_status_cb,
+  .dhcp = TRUE
+};
+
 /*
  * Application entry point.
  */
@@ -346,11 +393,15 @@ int main(void) {
   Thread *sh = NULL;
   Thread *ush = NULL;
 
+  LWIP_IPADDR(&lwip_opts.address);
+  LWIP_NETMASK(&lwip_opts.netmask);
+  LWIP_GATEWAY(&lwip_opts.gateway);
+
   /*
    * Creates the LWIP threads (it changes priority internally).
    */
   chThdCreateStatic(wa_lwip_thread, LWIP_THREAD_STACK_SIZE, NORMALPRIO + 1,
-                    lwip_thread, NULL);
+                    lwip_thread, &lwip_opts);
 
   /*
    * Creates the HTTP thread (it changes priority internally).

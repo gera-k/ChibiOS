@@ -266,6 +266,11 @@
 #define LWIP_NETMASK(p)                     IP4_ADDR(p, 255, 255, 255, 0)
 #endif
 
+/** @brief Link poll interval. */
+#if !defined(LWIP_LINK_POLL_INTERVAL) || defined(__DOXYGEN__)
+#define LWIP_LINK_POLL_INTERVAL             S2ST(1)
+#endif
+
 #endif /* _HALCONF_H_ */
 
 /** @} */
